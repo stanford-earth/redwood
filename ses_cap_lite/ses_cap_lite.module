@@ -67,17 +67,6 @@ function _ses_cap_lite_get_cap_schema() {
 
    module_load_include('inc','ses_cap_lite','ses_cap_lite.callback');
 
-    $cap_fields = _ses_cap_lite_profile_fields();
-    foreach ($cap_fields as $key => $caparray) {
-        if (function_exists($caparray['build_callback'])) {
-            watchdog('debug','found '.$key.' calls '.$caparray['build_callback']);
-        } else {
-            watchdog('debug','function not found for '.$key .' calling '.$caparray['build_callback']);
-        }
-    }
-    $xyz = print_r($cap_fields,TRUE);
-    watchdog('debug','cap fields <pre>'.$xyz.'</pre>');
-
     $data = ses_cap_lite_request('/cap/v1/schemas/profile');
     $output = 'The information is presented for planning and development work.<br />';
     $output .= '<strong>CAP fields:</strong><br />';

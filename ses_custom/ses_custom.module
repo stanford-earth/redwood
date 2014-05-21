@@ -15,6 +15,39 @@ function ses_custom_form_alter(&$form, &$form_state, $form_id) {
 }
 
 /*
+ * implementation of hook_user_insert called when user logs in
+ * for first time or system creates new user account during cron
+ */
+/*
+function ses_custom_user_insert(&$edit, $account, $category)
+{
+    $xyz = print_r($edit,TRUE);
+    $xy2 = print_r($account,TRUE);
+    watchdog('debug','inside hook_user_insert $edit:<pre>'.$xyz.'</pre> account:<pre>'.$xy2.'</pre>');
+    if (module_exists('wmd4') && isset($edit['authname_wmd4'])) {
+        watchdog('debug','this part should not run during batch');
+        $sunetid = db_query("SELECT authname FROM {authmap} WHERE uid = :uid",array(':uid'=>$account->uid))->fetchField();
+        if ($sunetid !== FALSE) {
+            $ldap_array = array();
+            include_once(drupal_get_path('module','wmd4').'/wmd4.util.inc');
+            $ldap_vars = _wmd4_get_ldap_variables();
+            $xyz = print_r($ldap_vars,TRUE);
+            watchdog('debug','ldap vars for user: <pre>'.$xyz.'</pre>');
+            $displayname = '';
+            if ($ldap_vars !== FALSE) {
+                foreach ($ldap_vars as $ldap_var) {
+                    if (substr($ldap_var,0,19) == 'wa_ldap_displayname') {
+                        $displayname = trim(substr($ldap_var,strpos($ldap_var,':')+1));
+                    }
+                }
+            }
+            if (!empty($displayname)) user_save($account,array('name'=>$displayname));
+        }
+    }
+}
+*/
+ 
+/*
  * implementation of hook_ses_cap_lite_preprocess_all
  *
  * return FALSE if we want to abort the profile update
@@ -38,9 +71,9 @@ function ses_custom_ses_cap_lite_preprocess_all() {
   $ses_custom_dupes = array();
 
   // read in our wmd4 array matching Drupal uids to SUNet IDs
-  $result = db_query("SELECT sunetid,uid FROM {wmd4_id}");
+  $result = db_query("SELECT authname,uid FROM {authmap}");
   foreach ($result as $row) {
-    $ses_custom_uid_array[$row->sunetid] = array('uid'=>$row->uid,'current'=>FALSE,);
+    $ses_custom_uid_array[$row->authname] = array('uid'=>$row->uid,'current'=>FALSE,);
   }
   return TRUE;
 
@@ -56,7 +89,6 @@ function ses_custom_ses_cap_lite_preprocess_wg($group) {
 
     global $ses_custom_uid_array, $ses_custom_count, $ses_custom_dupes;
 
-    watchdog('ses_custom','Preprocessing accounts workgroup ' . $group);
     // get the Affiliation and Personnel Type of this workgroup
     $affil_data = _ses_custom_get_workgroup_affiliation($group);
     if ($affil_data === FALSE) {
@@ -125,7 +157,7 @@ function _ses_custom_update_single_account($sunet = '', $uid = NULL, $affil_data
         $user = user_save('', $fields);
         $uid = $user->uid;
         // update tables for external users
-        db_insert('wmd4_id')->fields(array('uid'=>$user->uid,'sunetid'=>$sunet))->execute();
+        //db_insert('wmd4_id')->fields(array('uid'=>$user->uid,'sunetid'=>$sunet))->execute();
         db_insert('authmap')->fields(array('uid'=>$user->uid,'authname'=>$sunet,'module'=>'wmd4'))->execute();
     }  // if create user
 
@@ -144,7 +176,10 @@ function _ses_custom_update_single_account($sunet = '', $uid = NULL, $affil_data
     }
 
     // update the user's primary and secondary affiliations, personnel type and directory name
-    $new_array = $user->field_secondary_affiliations;
+    $new_array = array();
+    if (isset($user->field_secondary_affiliations)) {
+        $new_array = $user->field_secondary_affiliations;
+    }
     if (empty($new_array) || !is_array($new_array)) $new_array = array();
     if (!$secondary_okay) {
         // add primary affiliation to the secondary affiliation array if necessary
@@ -232,15 +267,13 @@ function ses_custom_ses_cap_lite_postsave_profile($bundle, $entity_id, $sunet) {
  *
  */
 function ses_custom_ses_cap_lite_postprocess_all() {
-    global $ses_custom_uid_array; $ses_custom_count;
+    global $ses_custom_uid_array, $ses_custom_count;
     foreach ($ses_custom_uid_array as $sunet => $subarray) {
         if ($subarray['current'] === FALSE) {
-            watchdog('debug','loading user '.$subarray['uid'].' to block');
             $old_user = user_load(intval($subarray['uid']));
             if ($old_user !== FALSE) {
                 if (isset($old_user->field_stanford_profile_record[LANGUAGE_NONE][0]['target_id'])) {
                     $profile_nid = $old_user->field_stanford_profile_record[LANGUAGE_NONE][0]['target_id'];
-                    watchdog('debug','loading node '.$profile_nid.' to unpublish.');
                     $old_node = node_load($profile_nid);
                     if ($old_node !== FALSE && $old_node->status !== 0) {
                         $old_node->status = 0;
